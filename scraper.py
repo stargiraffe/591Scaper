@@ -1,92 +1,156 @@
 from bs4 import BeautifulSoup
 import requests
 import pymongo
+from requests import Response
+import asyncio
+import time
+import aiohttp
+import model
+from model import insertDB
 
 client = pymongo.MongoClient('mongodb://localhost:27017/')
 db = client.db591
+urlSet = set()
 
-pageNum = 0
-while pageNum >= 0:
 
-  homePage = requests.get(
-      'https://rent.591.com.tw/?kind=0&region=1&firstRow=' + str(pageNum * 30)).text
-  pageNum += 1
-  homeSoup = BeautifulSoup(homePage, 'lxml')
+async def main():
+    ticks1 = time.time()
+    homePageResponse = requests.get(
+        'https://rent.591.com.tw/?kind=0&region=1')
+    # coros = [cityData(setCookieWithLocationIndex(
+    #     '3', homePageResponse)), cityData(setCookieWithLocationIndex('0', homePageResponse))]
+    # await asyncio.gather(*coros)
+    await cityData(setCookieWithLocationIndex('3', homePageResponse))
+    await cityData(setCookieWithLocationIndex('0', homePageResponse))
 
-  allHouseTitle = homeSoup.find('div', id='content').find_all(
-      'ul', class_='listInfo clearfix')
+    ticks2 = time.time()
+    print((ticks2 - ticks1) / 60)
 
-  for i in range(len(allHouseTitle)):
-    houseUrl = 'http:' + \
-        allHouseTitle[i].find('a', target='_blank')['href']
 
-    source = requests.get(
-        houseUrl).text
+def setCookieWithLocationIndex(locationIndex: chr, homePageResponse: Response):
 
+    coo = homePageResponse.cookies.get_dict()
+    coo['urlJumpIp'] = locationIndex
+    cookie = requests.cookies.merge_cookies(
+        requests.cookies.RequestsCookieJar(), coo)
+
+    location = ''
+    if locationIndex == '0':
+        location = '台北市'
+    elif locationIndex == '3':
+        location = '新北市'
+    return (cookie, location)
+
+
+async def cityData(cookieAndlocation: tuple):
+    cookie = cookieAndlocation[0]
+    location = cookieAndlocation[1]
+
+    homePageResponse = requests.get(
+        'https://rent.591.com.tw/?kind=0&region=1', cookies=cookie)
+    homePage = homePageResponse.text
+    homeSoup = BeautifulSoup(homePage, 'lxml')
+    houseTitles = homeSoup.find('div', id='content').find_all(
+        'ul', class_='listInfo clearfix')
+    await findOnePage(houseTitles, location)
+    pageNums = int(homeSoup.find_all('a', class_='pageNum-form')[-1].text)
+
+    pageNum = 1
+    tasks = []
+    # timeout = aiohttp.ClientTimeout(total=70, connect=3)
+    async with aiohttp.ClientSession(cookies=cookie, headers={"Connection": "close"}) as session:
+        # for pageNum in range(1, pageNums):
+        for pageNum in range(1, 10):
+            # tasks = []
+            # diff = 3
+            # if 30 - pageNum < 3:
+            #     diff = pageNums - pageNum
+            # for num in range(pageNum, pageNum + diff):
+            task = asyncio.ensure_future(findAllPage(
+                pageNum, session, location))
+            tasks.append(task)
+        print('ccccc')
+        _ = await asyncio.gather(*tasks, return_exceptions=True)
+        print('bbbb')
+        # pageNum+=10
+        # _ = await asyncio.wait(tasks)
+    # loop = asyncio.get_event_loop()
+    # tasks = asyncio.ensure_future(
+    # loop.run_until_complete(tasks)
+    # loop.close()
+    # await asyncio.gather(*coros)
+
+
+async def findAllPage(pageNum, session, location):
+    url = ('https://rent.591.com.tw/?kind=0&region=1&firstRow=' + str(pageNum * 30))
+    # print(url)
+    async with session.get(url) as response:
+        homePage = await response.read()
+        homeSoup = BeautifulSoup(homePage.decode('utf-8'), 'lxml')
+        print(pageNum)
+        houseTitles = homeSoup.find('div', id='content').find_all(
+            'ul', class_='listInfo clearfix')
+        await findOnePage(houseTitles, location)
+
+
+async def findOnePage(houseTitles, location):
+    tasks = []
+    # timeout = aiohttp.ClientTimeout(total=100, connect=2)
+    async with aiohttp.ClientSession() as session:
+        for houseTitle in houseTitles:
+            url = 'https:' + houseTitle.find('a', target='_blank')['href']
+            urlSet.add(url)
+            # task = asyncio.ensure_future(insertUrl(
+            # url))
+
+            # tasks.append(task)
+
+        # _ = await asyncio.gather(*tasks, return_exceptions=True)
+            await fetch(session, url, location)
+
+# async def findOnePage(houseTitles, location):
+#     tasks = []
+#     timeout = aiohttp.ClientTimeout(total=100, connect=2)
+#     response.get()
+#         for houseTitle in houseTitles:
+#             url = 'https:' + houseTitle.find('a', target='_blank')['href']
+#             urlSet.add(url)
+#             task = asyncio.ensure_future(insertUrl(
+#                 url))
+#             # task = asyncio.ensure_future(fetch(
+#             #     session, url, location))
+#             tasks.append(task)
+
+#         _ = await asyncio.gather(*tasks, return_exceptions=True)
+
+
+async def fetch(session, url, location):
+    async with session.get(url) as response:
+        onePageData(await response.text(), location)
+
+
+def onePageData(source: str, location: str):
+    # print('kkkkk')
     soup = BeautifulSoup(source, 'lxml')
-
     detailBox = soup.find('div', class_='detailBox clearfix')
 
     userInfo = detailBox.find('div', class_='userInfo')
 
-    avatarRight = userInfo.find('div', class_='avatarRight')
-
-    name = avatarRight.i.text.split('i')[0]
-
-    identity = avatarRight.div.text
-
-    identityLength = len(avatarRight.div.text)
-
-    if '屋主' in identity:
-      identity = '屋主'
-    elif '代理人' in identity:
-      identity = '代理人'
-    elif '仲介' in identity:
-      identity = '仲介'
-
-    phone = userInfo.find('span', class_='dialPhoneNum')['data-value']
-
     attrContent = detailBox.find('ul', class_='attr').find_all('li')
-
-    houseType = ''
-    houseCondition = ''
-    houseAtrrCnt = 1
-
-    while houseAtrrCnt < len(attrContent):
-      # print(attrContent[houseAtrrCnt].text.split(' :  '))
-      if attrContent[houseAtrrCnt].text.split(' :  ')[0] == '現況':
-        houseCondition = attrContent[houseAtrrCnt].text.split(' :  ')[
-            1]
-        houseType = attrContent[houseAtrrCnt -
-                                1].text.split(' :  ')[1]
-        break
-      houseAtrrCnt += 1
-
     landlordProvide = detailBox.find(
         'ul', class_='clearfix labelList labelList-1').find_all('li')
 
-    sex = '男女生皆可'
-    landlordProvideLen = len(landlordProvide)
-    sexCnt = 4
-    # print(landlordProvide[sexCnt].find_all('div', class_='one').text)
-    while sexCnt < landlordProvideLen:
-      # print(landlordProvide[sexCnt].find('div', class_='one').text)
-      if landlordProvide[sexCnt].find('div', class_='one').text == '性別要求':
-        sex = landlordProvide[sexCnt].em.text
-        if(sexCnt > 7):
-          print(
-              'faillllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll', name, sexCnt)
-        break
-      sexCnt += 1
-    if(sexCnt < 4):
-      print('faillllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll', name, sexCnt)
-    print(sex, houseCondition, houseType, phone, identity, name)
-    db.coll.insert_one({'name': name,
-                        'identity': identity,
-                        'phone': phone,
-                        'houseType': houseType,
-                        'houseCondition': houseCondition,
-                        'sex': sex})
+    insertDB(model.name(userInfo), model.identity(userInfo), location, model.phone(userInfo),
+             model.houseType(attrContent), model.houseCondition(attrContent), model.sex(landlordProvide))
 
-# dblist = client.list_database_names()
-# col = db.list_collection_names()
+
+async def insertUrl(url):
+    db.coll.insert_one({'url': url})
+
+    # print(sex, location, houseCondition, houseType, phone, identity, name)
+    # print('ccc')
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+    # main()
