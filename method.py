@@ -6,86 +6,132 @@ import requests
 import model
 import env
 
+"""
+There were request limit.
+so we need to divide task into smaller tasks
+task = all pages
+smaller tasks = some bunch of pages
+can adjust env.buncCnt to meet request limit
+"""
 
-async def findAllPage(cookie, city):
-    pageNums = maxPageNum(cookie)
-    pageBunchs = pageNums // env.bunchCnt
-    pageRemain = pageNums % env.bunchCnt
+
+async def findAll(cookie, city):
+    cnt = env.bunchCnt
+    pageNums = totalPageNum(cookie)
+    pageBunchs = pageNums // cnt  # how many tasks in this task
+    remainPages = pageNums % cnt
+
     for pageBunch in range(pageBunchs):
-        currPage = pageBunch * env.bunchCnt
-        await findBunchPage(currPage, env.bunchCnt, cookie, city)
+        currPage = pageBunch * cnt
+        await findBunch(currPage, cnt, cookie, city)
         if pageBunch == pageBunchs:
-            await findBunchPage(currPage, pageRemain, cookie, city)
+            await findBunch(currPage, remainPages, cookie, city)
+
+"""
+Find url on bunch pages
+"""
 
 
-async def findBunchPage(pageNums, bunchCnt, cookie, city):
+async def findBunch(currPage, bunchCnt, cookie, city):
     tasks = []
     async with aiohttp.ClientSession(cookies=cookie, headers={"Connection": "close"}) as session:
-        for pageNum in range(pageNums, pageNums + bunchCnt):
+        for pageNum in range(currPage, currPage + bunchCnt):
             task = asyncio.ensure_future(bunchFetch(
                 pageNum, session, city))
             tasks.append(task)
-        _ = await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+"""
+Parse url on bunch pages and access the data
+"""
 
 
 async def bunchFetch(pageNum, session, city):
+    """
+    591 hide the real variable to change page,
+    add (firstRow + str(pageNum*30)) in url will access the true page
+    """
+
     url = ('https://rent.591.com.tw/?kind=0&region=1&firstRow=' + str(pageNum * 30))
     async with session.get(url) as response:
-        homePage = await response.read()
-        homeSoup = BeautifulSoup(homePage.decode('utf-8'), 'lxml')
-        houseTitles = homeSoup.find('div', id='content').find_all(
-            'ul', class_='listInfo clearfix')
-        await findOnePage(houseTitles, city)
+        page = await response.read()
+        urlList = BeautifulSoup(page.decode(
+            'utf-8'), 'lxml').find('div', id='content').find_all('ul', class_='listInfo clearfix')
+        await findOne(urlList, city)
+
+"""
+Find url on each page
+"""
 
 
-async def findOnePage(houseTitles, city):
+async def findOne(urlList, city):
     tasks = []
-    # timeout = aiohttp.ClientTimeout(total=100, connect=2)
     async with aiohttp.ClientSession() as session:
-        for houseTitle in houseTitles:
-            url = 'https:' + houseTitle.find('a', target='_blank')['href']
-            # urlSet.add(url)
+        for urlItem in urlList:
+            url = 'https:' + urlItem.find('a', target='_blank')['href']
+            model.insertUrl(url)
             await fetch(session, url, city)
+
+"""
+Parse url and access the data
+"""
 
 
 async def fetch(session, url, city):
     async with session.get(url) as response:
-        onePageData(await response.text(), city)
+        houseData(await response.text(), url, city)
+
+"""
+Parse data and insert db
+"""
 
 
-def onePageData(source: str, city: str):
-    soup = BeautifulSoup(source, 'lxml')
-    detailBox = soup.find('div', class_='detailBox clearfix')
+def houseData(source, url, city):
+    detailBox = BeautifulSoup(source, 'lxml').find(
+        'div', class_='detailBox clearfix')
     userInfo = detailBox.find('div', class_='userInfo')
     attrContent = detailBox.find('ul', class_='attr').find_all('li')
     landlordProvide = detailBox.find(
         'ul', class_='clearfix labelList labelList-1').find_all('li')
-    model.insertDB(model.name(userInfo), model.identity(userInfo), city, model.phone(userInfo),
+    model.insertDB(model.name(userInfo), model.identity(userInfo), city, url, model.phone(userInfo),
                    model.houseType(attrContent), model.houseCondition(attrContent), model.sex(landlordProvide))
 
 
-def finalCookie(cityIndex, homePageResponse):
-    coo = homePageResponse.cookies.get_dict()
-    coo['urlJumpIp'] = cityIndex
-    cookie = requests.cookies.merge_cookies(
-        requests.cookies.RequestsCookieJar(), coo)
-    return cookie
+"""
+Need specific cookie to access specific city pages
+"""
+
+
+def finalCookie(cityIndex, resp):
+    cookie = resp.cookies.get_dict()
+    cookie['urlJumpIp'] = cityIndex
+    finalCookie = requests.cookies.merge_cookies(
+        requests.cookies.RequestsCookieJar(), cookie)
+    return finalCookie
+
+
+"""
+city index:
+combine with cookie to access specific city pages
+Taipei = 0
+New Taipei = 3,
+Keelung = 5, etc...
+"""
 
 
 def city(cityIndex):
-    city = ''
-    if cityIndex == '0':
-        city = '台北市'
-    elif cityIndex == '3':
+    city = '台北市'
+    if cityIndex == '3':
         city = '新北市'
     return city
 
 
-def maxPageNum(cookie):
-    homePageResponse = requests.get(
+"""
+Total page number of each city
+"""
+
+
+def totalPageNum(cookie):
+    resp = requests.get(
         'https://rent.591.com.tw/?kind=0&region=1', cookies=cookie)
-    homePage = homePageResponse.text
-    homeSoup = BeautifulSoup(homePage, 'lxml')
-    houseTitles = homeSoup.find('div', id='content').find_all(
-        'ul', class_='listInfo clearfix')
-    return int(homeSoup.find_all('a', class_='pageNum-form')[-1].text)
+    return int(BeautifulSoup(resp.text, 'lxml').find_all('a', class_='pageNum-form')[-1].text)

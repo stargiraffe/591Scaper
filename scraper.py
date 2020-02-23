@@ -12,14 +12,14 @@ import env
 
 
 async def main():
-    ticks1 = time.time()
-    homePageResponse = requests.get(
+    # ticks1 = time.time()
+    resp = requests.get(
         'https://rent.591.com.tw/?kind=0&region=1')
     for cityIndex in env.cityIndexBox:
-        cookie = method.finalCookie(cityIndex, homePageResponse)
-        await method.findAllPage(cookie, method.city(cityIndex))
-    ticks2 = time.time()
-    print((ticks2 - ticks1) / 60)
+        cookie = method.finalCookie(cityIndex, resp)
+        await method.findAll(cookie, method.city(cityIndex))
+    # ticks2 = time.time()
+    # print((ticks2 - ticks1) / 60)
 
 
 if __name__ == "__main__":

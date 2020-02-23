@@ -5,11 +5,17 @@ client = pymongo.MongoClient('mongodb://localhost:27017/')
 db = client.db591
 
 
-def insertDB(name, identity, city, phone, houseType, houseCondition, sex):
-    print(sex, city, houseCondition, houseType, phone, identity, name)
+def insertUrl(url):
+    print(url)
+    db.coll.insert_one({'url': url})
+
+
+def insertDB(name, identity, city, url, phone, houseType, houseCondition, sex):
+    print(sex, city, url, houseCondition, houseType, phone, identity, name)
     db.coll.insert_one({'name': name,
                         'identity': identity,
                         'city': city,
+                        'url': url,
                         'phone': phone,
                         'houseType': houseType,
                         'houseCondition': houseCondition,
