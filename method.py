@@ -69,7 +69,7 @@ async def findOne(urlList, city):
     async with aiohttp.ClientSession() as session:
         for urlItem in urlList:
             url = 'https:' + urlItem.find('a', target='_blank')['href']
-            model.insertUrl(url)
+            # model.insertUrl(url)
             await fetch(session, url, city)
 
 """
@@ -94,7 +94,7 @@ def houseData(source, url, city):
     landlordProvide = detailBox.find(
         'ul', class_='clearfix labelList labelList-1').find_all('li')
     model.insertDB(model.name(userInfo), model.identity(userInfo), city, url, model.phone(userInfo),
-                   model.houseType(attrContent), model.houseCondition(attrContent), model.sex(landlordProvide))
+                   model.attr(attrContent, '型態'), model.attr(attrContent, '現況'), model.sex(landlordProvide))
 
 
 """

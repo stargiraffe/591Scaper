@@ -1,17 +1,17 @@
 import pymongo
+import env
 from bs4 import BeautifulSoup
 
-client = pymongo.MongoClient('mongodb://localhost:27017/')
-db = client.db591
+client = pymongo.MongoClient(env.mongoPath)
+db = client[env.mongoName]
 
 
 def insertUrl(url):
-    print(url)
     db.coll.insert_one({'url': url})
 
 
 def insertDB(name, identity, city, url, phone, houseType, houseCondition, sex):
-    print(sex, city, url, houseCondition, houseType, phone, identity, name)
+    print(name, identity, city, url, phone, houseType, houseCondition, sex)
     db.coll.insert_one({'name': name,
                         'identity': identity,
                         'city': city,
@@ -22,54 +22,43 @@ def insertDB(name, identity, city, url, phone, houseType, houseCondition, sex):
                         'sex': sex})
 
 
-def name(self):
-    return self.find('div', class_='avatarRight').i.text.split('i')[0]
+def name(content):
+    return content.find('div', class_='avatarRight').i.text.split('i')[0]
 
 
-def houseCondition(self):
-    houseCondition = ''
-    atrrCnt = 0
-    while atrrCnt < len(self):
-        if self[atrrCnt].text.split(' :  ')[0] == '現況':
-            houseCondition = self[atrrCnt].text.split(' :  ')[1]
+def attr(content, id):
+    attr = ''
+    cnt = 0
+    while cnt < len(content):
+        if content[cnt].text.split(' :  ')[0] == id:
+            attr = content[cnt].text.split(' :  ')[1]
             break
-        atrrCnt += 1
-    return houseCondition
+        cnt += 1
+    return attr
 
 
-def houseType(self):
-    houseType = ''
-    atrrCnt = 0
-    while atrrCnt < len(self):
-        if self[atrrCnt].text.split(' :  ')[0] == '型態':
-            houseType = self[atrrCnt].text.split(' :  ')[1]
-            break
-        atrrCnt += 1
-    return houseType
+def phone(content):
+    return content.find('span', class_='dialPhoneNum')['data-value']
 
 
-def phone(self):
-    return self.find('span', class_='dialPhoneNum')['data-value']
-
-
-def identity(self):
-    identity = self.find('div', class_='avatarRight').div.text
+def identity(content):
+    identity = content.find('div', class_='avatarRight').div.text
     if '屋主' in identity:
         identity = '屋主'
     elif '代理人' in identity:
         identity = '代理人'
     elif '仲介' in identity:
         identity = '仲介'
-
     return identity
 
 
-def sex(self):
+def sex(content):
     sex = '男女生皆可'
-    length = len(self)
-    sexCnt = 4
-    while sexCnt < length:
-        if self[sexCnt].find('div', class_='one').text == '性別要求':
-            sex = self[sexCnt].em.text
-        sexCnt += 1
+    length = len(content)
+    cnt = 0
+    while cnt < length:
+        if content[cnt].find('div', class_='one').text == '性別要求':
+            sex = content[cnt].em.text
+            break
+        cnt += 1
     return sex
